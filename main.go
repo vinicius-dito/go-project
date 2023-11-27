@@ -64,7 +64,7 @@ func main() {
 
 func handler(router *mux.Router) error {
 	// assim eu só aceito método post pra rota. daí eu não conseguia printar o erro.
-	//router.HandleFunc("/ping", ping).Methods(http.MethodGet)
+	//router.HandleFunc("/ping", ping).Methods(http.MethodGet, http.MethodPost)
 	router.HandleFunc("/ping", ping)
 	router.HandleFunc("/transaction", transaction)
 	router.HandleFunc("/seller", seller)
