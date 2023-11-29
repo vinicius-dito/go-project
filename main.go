@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
+	"cloud.google.com/go/bigquery"
 	"github.com/gorilla/mux"
 )
 
@@ -16,6 +19,13 @@ const (
 	read_body_failed   = "failed to read request body"
 	unmarshal_failed   = "failed to unmarshal request body"
 )
+
+type config struct {
+	gcpProjectId       string
+	gcpProjectLocation string
+	bigQueryDataset    string
+	bigQueryUsersTable string
+}
 
 type transactions struct {
 	userId        string
@@ -27,13 +37,20 @@ type transactions struct {
 	updatedAt     string
 }
 
+type usersInput struct {
+	UserId   string `json:"user_id"`
+	UserName string `json:"user_name"`
+	Address  string `json:"address"`
+	Birthday string `json:"birthday"`
+}
+
 type users struct {
-	UserId    string `json:"user_id"`
-	UserName  string `json:"user_name"`
-	Address   string `json:"address"`
-	Birthday  string `json:"birthday"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	UserId    string `bigquery:"user_id"`
+	UserName  string `bigquery:"user_name"`
+	Address   string `bigquery:"address"`
+	Birthday  string `bigquery:"birthday"`
+	CreatedAt string `bigquery:"created_at"`
+	UpdatedAt string `bigquery:"updated_at"`
 }
 
 type sellers struct {
@@ -47,9 +64,19 @@ type sellers struct {
 }
 
 func main() {
+	ctx := context.Background()
+
+	envVars := setupEnv()
+
+	bigQueryClient, err := bigquery.NewClient(ctx, envVars.gcpProjectId)
+	if err != nil {
+		panic(err)
+	}
+	defer bigQueryClient.Close()
+
 	router := mux.NewRouter()
 
-	err := handler(router)
+	err = handler(router, bigQueryClient, envVars, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -62,13 +89,25 @@ func main() {
 	}
 }
 
-func handler(router *mux.Router) error {
+func setupEnv() config {
+	return config{
+		gcpProjectId:       os.Getenv("GCP_PROJECT_ID"),
+		gcpProjectLocation: os.Getenv("GCP_PROJECT_LOCATION"),
+		bigQueryDataset:    os.Getenv("BIG_QUERY_DATASET"),
+		bigQueryUsersTable: os.Getenv("BIG_QUERY_USERS_TABLE"),
+	}
+}
+
+func handler(router *mux.Router, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) error {
 	// assim eu só aceito método post pra rota. daí eu não conseguia printar o erro.
 	//router.HandleFunc("/ping", ping).Methods(http.MethodGet, http.MethodPost)
 	router.HandleFunc("/ping", ping)
 	router.HandleFunc("/transaction", transaction)
 	router.HandleFunc("/seller", seller)
-	router.HandleFunc("/user", user)
+	//router.HandleFunc("/user", user)
+	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
+		user(w, req, bigQueryClient, envVars, ctx)
+	})
 
 	return nil
 }
@@ -104,10 +143,10 @@ func seller(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func user(w http.ResponseWriter, req *http.Request) {
+func user(w http.ResponseWriter, req *http.Request, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) {
 	switch req.Method {
 	case http.MethodGet:
-		user, err := getUser(req)
+		user, err := getUser(req, bigQueryClient, envVars, ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -115,7 +154,7 @@ func user(w http.ResponseWriter, req *http.Request) {
 
 		fmt.Fprintf(w, "User fetched successfully\n \tUserId: %v", user.UserId)
 	case http.MethodPost:
-		user, err := registerUser(req)
+		user, err := registerUser(req, bigQueryClient, envVars, ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -127,33 +166,40 @@ func user(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func registerUser(req *http.Request) (users, error) {
+func registerUser(req *http.Request, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) (users, error) {
 	// fazer uma lógica de dar get no usuário antes de tentar cria-lo.
 	// fazer separação de domínio, pois não quero que venha created_at e updated_at da api.
-	var user users
+	var user usersInput
+	var userDB users
 
 	postBody, err := io.ReadAll(req.Body)
 	if err != nil {
-		return users{}, errors.New(read_body_failed)
+		return users{}, fmt.Errorf("%s: %v", read_body_failed, err)
 	}
 
 	err = json.Unmarshal(postBody, &user)
 	if err != nil {
-		return users{}, errors.New(unmarshal_failed)
+		return users{}, fmt.Errorf("%s: %v", unmarshal_failed, err)
 	}
 
-	return users{
-		UserId:    user.UserId,
-		UserName:  user.UserName,
-		Address:   user.Address,
-		Birthday:  user.Birthday,
-		CreatedAt: time.Now().String(),
-		UpdatedAt: time.Now().String(),
-	}, nil
+	userDB.Address = user.Address
+	userDB.Birthday = user.Birthday
+	userDB.CreatedAt = time.Now().String()
+	userDB.UpdatedAt = time.Now().String()
+	userDB.UserId = user.UserId
+	userDB.UserName = user.UserName
+
+	inserter := bigQueryClient.Dataset(envVars.bigQueryDataset).Table(envVars.bigQueryUsersTable).Inserter()
+
+	if err = inserter.Put(ctx, userDB); err != nil {
+		return users{}, fmt.Errorf("failed to insert user into BigQuery: %v", err)
+	}
+
+	return userDB, nil
 }
 
-func getUser(req *http.Request) (users, error) {
-	var user users
+func getUser(req *http.Request, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) (users, error) {
+	var user usersInput
 
 	getBody, err := io.ReadAll(req.Body)
 	if err != nil {
