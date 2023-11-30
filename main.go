@@ -12,6 +12,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/gorilla/mux"
+	"google.golang.org/api/iterator"
 )
 
 const (
@@ -55,9 +56,9 @@ type users struct {
 
 type sellers struct {
 	seller_id  string
-	store_id   int
+	store_id   string
 	name       string
-	document   int
+	document   string
 	status     string
 	created_at string
 	updated_at string
@@ -104,7 +105,6 @@ func handler(router *mux.Router, bigQueryClient *bigquery.Client, envVars config
 	router.HandleFunc("/ping", ping)
 	router.HandleFunc("/transaction", transaction)
 	router.HandleFunc("/seller", seller)
-	//router.HandleFunc("/user", user)
 	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
 		user(w, req, bigQueryClient, envVars, ctx)
 	})
@@ -152,7 +152,11 @@ func user(w http.ResponseWriter, req *http.Request, bigQueryClient *bigquery.Cli
 			return
 		}
 
-		fmt.Fprintf(w, "User fetched successfully\n \tUserId: %v", user.UserId)
+		fmt.Fprintf(w, "User fetched successfully\n \tuser_id: %v\n \tuser_name: %v\n \taddress: %v\n \tbirthday: %v\n \tcreated_at: %v\n \tupdated_at: %v\n \t",
+			user.UserId, user.UserName,
+			user.Address, user.Birthday,
+			user.CreatedAt, user.UpdatedAt,
+		)
 	case http.MethodPost:
 		user, err := registerUser(req, bigQueryClient, envVars, ctx)
 		if err != nil {
@@ -160,7 +164,7 @@ func user(w http.ResponseWriter, req *http.Request, bigQueryClient *bigquery.Cli
 			return
 		}
 
-		fmt.Fprintf(w, "User registered successfully: %v", user)
+		fmt.Fprintf(w, "User registered successfully\n \t %v", user)
 	default:
 		http.Error(w, method_not_allowed, http.StatusMethodNotAllowed)
 	}
@@ -168,7 +172,6 @@ func user(w http.ResponseWriter, req *http.Request, bigQueryClient *bigquery.Cli
 
 func registerUser(req *http.Request, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) (users, error) {
 	// fazer uma lógica de dar get no usuário antes de tentar cria-lo.
-	// fazer separação de domínio, pois não quero que venha created_at e updated_at da api.
 	var user usersInput
 	var userDB users
 
@@ -184,8 +187,8 @@ func registerUser(req *http.Request, bigQueryClient *bigquery.Client, envVars co
 
 	userDB.Address = user.Address
 	userDB.Birthday = user.Birthday
-	userDB.CreatedAt = time.Now().String()
-	userDB.UpdatedAt = time.Now().String()
+	userDB.CreatedAt = time.Now().Format("2006-01-02T15:04:05-0700")
+	userDB.UpdatedAt = time.Now().Format("2006-01-02T15:04:05-0700")
 	userDB.UserId = user.UserId
 	userDB.UserName = user.UserName
 
@@ -203,19 +206,51 @@ func getUser(req *http.Request, bigQueryClient *bigquery.Client, envVars config,
 
 	getBody, err := io.ReadAll(req.Body)
 	if err != nil {
-		return users{}, errors.New(read_body_failed)
+		return users{}, fmt.Errorf("%s: %v", read_body_failed, err)
 	}
 
 	err = json.Unmarshal(getBody, &user)
 	if err != nil {
-		return users{}, errors.New(unmarshal_failed)
+		return users{}, fmt.Errorf("%s: %v", unmarshal_failed, err)
 	}
 
 	if user.UserId == "" {
 		return users{}, errors.New("missing user_id on body request")
 	}
 
-	return users{
-		UserId: user.UserId,
-	}, nil
+	queryGet := bigQueryClient.Query(fmt.Sprintf("SELECT * FROM `%s.%s.%s` WHERE user_id = '%s'", envVars.gcpProjectId, envVars.bigQueryDataset, envVars.bigQueryUsersTable, user.UserId))
+
+	queryJob, err := queryGet.Run(ctx)
+	if err != nil {
+		return users{}, fmt.Errorf("failed to run get user query: %v", err)
+	}
+
+	status, err := queryJob.Wait(ctx)
+	if err != nil {
+		return users{}, fmt.Errorf("failed to retrieve get user query job status: %v", err)
+	}
+
+	if err = status.Err(); err != nil {
+		return users{}, fmt.Errorf("failed to finish get user query job successfully: %v", err)
+	}
+
+	it, err := queryJob.Read(ctx)
+	if err != nil {
+		return users{}, fmt.Errorf("failed to read get user query job result: %v", err)
+	}
+
+	var result users
+
+	for {
+		err := it.Next(&result)
+		if err == iterator.Done {
+			break
+		}
+
+		if err != nil {
+			return users{}, err
+		}
+	}
+
+	return result, nil
 }
