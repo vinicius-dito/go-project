@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go-project/domain"
+	users_firestore_repository "go-project/repository"
 	"io"
 	"net/http"
 	"os"
 	"time"
 
-	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go"
 	"github.com/gorilla/mux"
 )
@@ -27,40 +28,11 @@ type config struct {
 	firestoreUsersCollection string
 }
 
-type transactions struct {
-	userId        string
-	transactionId int
-	storeId       int
-	sellerId      string
-	revenue       float64
-	createdAt     string
-	updatedAt     string
-}
-
 type usersInput struct {
 	UserId   string `json:"user_id"`
 	UserName string `json:"user_name"`
 	Address  string `json:"address"`
 	Birthday string `json:"birthday"`
-}
-
-type users struct {
-	UserId    string `firestore:"user_id"`
-	UserName  string `firestore:"user_name"`
-	Address   string `firestore:"address"`
-	Birthday  string `firestore:"birthday"`
-	CreatedAt string `firestore:"created_at"`
-	UpdatedAt string `firestore:"updated_at"`
-}
-
-type sellers struct {
-	seller_id  string
-	store_id   string
-	name       string
-	document   string
-	status     string
-	created_at string
-	updated_at string
 }
 
 func main() {
@@ -81,15 +53,11 @@ func main() {
 	}
 	defer firestoreClient.Close()
 
-	/* bigQueryClient, err := bigquery.NewClient(ctx, envVars.gcpProjectId)
-	if err != nil {
-		panic(err)
-	}
-	defer bigQueryClient.Close() */
+	usersRepository := users_firestore_repository.NewUsersFirestoreRepository(*firestoreClient, envVars.firestoreUsersCollection)
 
 	router := mux.NewRouter()
 
-	err = handler(router, firestoreClient, envVars, ctx)
+	err = handler(router, usersRepository, envVars, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -110,14 +78,12 @@ func setupEnv() config {
 	}
 }
 
-func handler(router *mux.Router, firestoreClient *firestore.Client, envVars config, ctx context.Context) error {
-	// assim eu só aceito método post pra rota. daí eu não conseguia printar o erro.
-	//router.HandleFunc("/ping", ping).Methods(http.MethodGet, http.MethodPost)
+func handler(router *mux.Router, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) error {
 	router.HandleFunc("/ping", ping)
 	router.HandleFunc("/transaction", transaction)
 	router.HandleFunc("/seller", seller)
 	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
-		user(w, req, firestoreClient, envVars, ctx)
+		user(w, req, usersRepository, envVars, ctx)
 	})
 
 	return nil
@@ -154,10 +120,10 @@ func seller(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func user(w http.ResponseWriter, req *http.Request, firestoreClient *firestore.Client, envVars config, ctx context.Context) {
+func user(w http.ResponseWriter, req *http.Request, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) {
 	switch req.Method {
 	case http.MethodGet:
-		user, err := getUser(req, firestoreClient, envVars, ctx)
+		user, err := getUser(req, usersRepository, envVars, ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -169,7 +135,7 @@ func user(w http.ResponseWriter, req *http.Request, firestoreClient *firestore.C
 			user.CreatedAt, user.UpdatedAt,
 		)
 	case http.MethodPut:
-		user, err := saveUser(req, firestoreClient, envVars, ctx)
+		user, err := saveUser(req, usersRepository, envVars, ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -181,18 +147,18 @@ func user(w http.ResponseWriter, req *http.Request, firestoreClient *firestore.C
 	}
 }
 
-func saveUser(req *http.Request, firestoreClient *firestore.Client, envVars config, ctx context.Context) (users, error) {
+func saveUser(req *http.Request, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) (domain.Users, error) {
 	var user usersInput
-	var userDB users
+	var userDB domain.Users
 
 	putBody, err := io.ReadAll(req.Body)
 	if err != nil {
-		return users{}, fmt.Errorf("%s: %v", read_body_failed, err)
+		return userDB, fmt.Errorf("%s: %v", read_body_failed, err)
 	}
 
 	err = json.Unmarshal(putBody, &user)
 	if err != nil {
-		return users{}, fmt.Errorf("%s: %v", unmarshal_failed, err)
+		return userDB, fmt.Errorf("%s: %v", unmarshal_failed, err)
 	}
 
 	userDB.Address = user.Address
@@ -201,41 +167,35 @@ func saveUser(req *http.Request, firestoreClient *firestore.Client, envVars conf
 	userDB.UserId = user.UserId
 	userDB.UserName = user.UserName
 
-	_, err = firestoreClient.Collection(envVars.firestoreUsersCollection).Doc(userDB.UserId).Set(ctx, userDB)
-
+	err = usersRepository.Save(ctx, userDB)
 	if err != nil {
-		return users{}, fmt.Errorf("failed to insert user into Firestore: %v", err)
+		return domain.Users{}, err
 	}
 
 	return userDB, nil
 }
 
-func getUser(req *http.Request, firestoreClient *firestore.Client, envVars config, ctx context.Context) (users, error) {
+func getUser(req *http.Request, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) (domain.Users, error) {
 	var user usersInput
+	var userDB domain.Users
 
 	getBody, err := io.ReadAll(req.Body)
 	if err != nil {
-		return users{}, fmt.Errorf("%s: %v", read_body_failed, err)
+		return userDB, fmt.Errorf("%s: %v", read_body_failed, err)
 	}
 
 	err = json.Unmarshal(getBody, &user)
 	if err != nil {
-		return users{}, fmt.Errorf("%s: %v", unmarshal_failed, err)
+		return userDB, fmt.Errorf("%s: %v", unmarshal_failed, err)
 	}
 
 	if user.UserId == "" {
-		return users{}, errors.New("missing user_id on body request")
+		return userDB, errors.New("missing user_id on body request")
 	}
 
-	userDoc, err := firestoreClient.Collection(envVars.firestoreUsersCollection).Doc(user.UserId).Get(ctx)
+	userDB, err = usersRepository.Get(ctx, user.UserId)
 	if err != nil {
-		return users{}, fmt.Errorf("failed to get user from Firestore: %v", err)
-	}
-
-	var userDB users
-
-	if err = userDoc.DataTo(&userDB); err != nil {
-		return users{}, fmt.Errorf("failed to parse Firestore document: %v", err)
+		return userDB, err
 	}
 
 	return userDB, nil
