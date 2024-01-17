@@ -8,10 +8,18 @@ require (
 )
 
 require (
+	cloud.google.com/go/firestore v1.13.0 // indirect
+	cloud.google.com/go/longrunning v0.5.2 // indirect
+	cloud.google.com/go/storage v1.30.1 // indirect
+	golang.org/x/time v0.3.0 // indirect
+)
+
+require (
 	cloud.google.com/go v0.110.8 // indirect
 	cloud.google.com/go/compute v1.23.1 // indirect
 	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	cloud.google.com/go/iam v1.1.3 // indirect
+	firebase.google.com/go v3.13.0+incompatible
 	github.com/andybalholm/brotli v1.0.4 // indirect
 	github.com/apache/arrow/go/v12 v12.0.0 // indirect
 	github.com/apache/thrift v0.16.0 // indirect

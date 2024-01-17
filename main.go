@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/firestore"
+	firebase "firebase.google.com/go"
 	"github.com/gorilla/mux"
-	"google.golang.org/api/iterator"
 )
 
 const (
@@ -22,10 +22,9 @@ const (
 )
 
 type config struct {
-	gcpProjectId       string
-	gcpProjectLocation string
-	bigQueryDataset    string
-	bigQueryUsersTable string
+	gcpProjectId             string
+	gcpProjectLocation       string
+	firestoreUsersCollection string
 }
 
 type transactions struct {
@@ -46,12 +45,12 @@ type usersInput struct {
 }
 
 type users struct {
-	UserId    string `bigquery:"user_id"`
-	UserName  string `bigquery:"user_name"`
-	Address   string `bigquery:"address"`
-	Birthday  string `bigquery:"birthday"`
-	CreatedAt string `bigquery:"created_at"`
-	UpdatedAt string `bigquery:"updated_at"`
+	UserId    string `firestore:"user_id"`
+	UserName  string `firestore:"user_name"`
+	Address   string `firestore:"address"`
+	Birthday  string `firestore:"birthday"`
+	CreatedAt string `firestore:"created_at"`
+	UpdatedAt string `firestore:"updated_at"`
 }
 
 type sellers struct {
@@ -69,15 +68,28 @@ func main() {
 
 	envVars := setupEnv()
 
-	bigQueryClient, err := bigquery.NewClient(ctx, envVars.gcpProjectId)
+	// Google Cloud
+
+	firebase, err := firebase.NewApp(ctx, &firebase.Config{ProjectID: envVars.gcpProjectId})
 	if err != nil {
 		panic(err)
 	}
-	defer bigQueryClient.Close()
+
+	firestoreClient, err := firebase.Firestore(ctx)
+	if err != nil {
+		panic(err)
+	}
+	defer firestoreClient.Close()
+
+	/* bigQueryClient, err := bigquery.NewClient(ctx, envVars.gcpProjectId)
+	if err != nil {
+		panic(err)
+	}
+	defer bigQueryClient.Close() */
 
 	router := mux.NewRouter()
 
-	err = handler(router, bigQueryClient, envVars, ctx)
+	err = handler(router, firestoreClient, envVars, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -92,21 +104,20 @@ func main() {
 
 func setupEnv() config {
 	return config{
-		gcpProjectId:       os.Getenv("GCP_PROJECT_ID"),
-		gcpProjectLocation: os.Getenv("GCP_PROJECT_LOCATION"),
-		bigQueryDataset:    os.Getenv("BIG_QUERY_DATASET"),
-		bigQueryUsersTable: os.Getenv("BIG_QUERY_USERS_TABLE"),
+		gcpProjectId:             os.Getenv("GCP_PROJECT_ID"),
+		gcpProjectLocation:       os.Getenv("GCP_PROJECT_LOCATION"),
+		firestoreUsersCollection: os.Getenv("FIRESTORE_USERS_COLLECTION"),
 	}
 }
 
-func handler(router *mux.Router, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) error {
+func handler(router *mux.Router, firestoreClient *firestore.Client, envVars config, ctx context.Context) error {
 	// assim eu só aceito método post pra rota. daí eu não conseguia printar o erro.
 	//router.HandleFunc("/ping", ping).Methods(http.MethodGet, http.MethodPost)
 	router.HandleFunc("/ping", ping)
 	router.HandleFunc("/transaction", transaction)
 	router.HandleFunc("/seller", seller)
 	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
-		user(w, req, bigQueryClient, envVars, ctx)
+		user(w, req, firestoreClient, envVars, ctx)
 	})
 
 	return nil
@@ -143,10 +154,10 @@ func seller(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func user(w http.ResponseWriter, req *http.Request, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) {
+func user(w http.ResponseWriter, req *http.Request, firestoreClient *firestore.Client, envVars config, ctx context.Context) {
 	switch req.Method {
 	case http.MethodGet:
-		user, err := getUser(req, bigQueryClient, envVars, ctx)
+		user, err := getUser(req, firestoreClient, envVars, ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -157,8 +168,8 @@ func user(w http.ResponseWriter, req *http.Request, bigQueryClient *bigquery.Cli
 			user.Address, user.Birthday,
 			user.CreatedAt, user.UpdatedAt,
 		)
-	case http.MethodPost:
-		user, err := registerUser(req, bigQueryClient, envVars, ctx)
+	case http.MethodPut:
+		user, err := saveUser(req, firestoreClient, envVars, ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -170,38 +181,36 @@ func user(w http.ResponseWriter, req *http.Request, bigQueryClient *bigquery.Cli
 	}
 }
 
-func registerUser(req *http.Request, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) (users, error) {
-	// fazer uma lógica de dar get no usuário antes de tentar cria-lo.
+func saveUser(req *http.Request, firestoreClient *firestore.Client, envVars config, ctx context.Context) (users, error) {
 	var user usersInput
 	var userDB users
 
-	postBody, err := io.ReadAll(req.Body)
+	putBody, err := io.ReadAll(req.Body)
 	if err != nil {
 		return users{}, fmt.Errorf("%s: %v", read_body_failed, err)
 	}
 
-	err = json.Unmarshal(postBody, &user)
+	err = json.Unmarshal(putBody, &user)
 	if err != nil {
 		return users{}, fmt.Errorf("%s: %v", unmarshal_failed, err)
 	}
 
 	userDB.Address = user.Address
 	userDB.Birthday = user.Birthday
-	userDB.CreatedAt = time.Now().Format("2006-01-02T15:04:05-0700")
 	userDB.UpdatedAt = time.Now().Format("2006-01-02T15:04:05-0700")
 	userDB.UserId = user.UserId
 	userDB.UserName = user.UserName
 
-	inserter := bigQueryClient.Dataset(envVars.bigQueryDataset).Table(envVars.bigQueryUsersTable).Inserter()
+	_, err = firestoreClient.Collection(envVars.firestoreUsersCollection).Doc(userDB.UserId).Set(ctx, userDB)
 
-	if err = inserter.Put(ctx, userDB); err != nil {
-		return users{}, fmt.Errorf("failed to insert user into BigQuery: %v", err)
+	if err != nil {
+		return users{}, fmt.Errorf("failed to insert user into Firestore: %v", err)
 	}
 
 	return userDB, nil
 }
 
-func getUser(req *http.Request, bigQueryClient *bigquery.Client, envVars config, ctx context.Context) (users, error) {
+func getUser(req *http.Request, firestoreClient *firestore.Client, envVars config, ctx context.Context) (users, error) {
 	var user usersInput
 
 	getBody, err := io.ReadAll(req.Body)
@@ -218,39 +227,16 @@ func getUser(req *http.Request, bigQueryClient *bigquery.Client, envVars config,
 		return users{}, errors.New("missing user_id on body request")
 	}
 
-	queryGet := bigQueryClient.Query(fmt.Sprintf("SELECT * FROM `%s.%s.%s` WHERE user_id = '%s'", envVars.gcpProjectId, envVars.bigQueryDataset, envVars.bigQueryUsersTable, user.UserId))
-
-	queryJob, err := queryGet.Run(ctx)
+	userDoc, err := firestoreClient.Collection(envVars.firestoreUsersCollection).Doc(user.UserId).Get(ctx)
 	if err != nil {
-		return users{}, fmt.Errorf("failed to run get user query: %v", err)
+		return users{}, fmt.Errorf("failed to get user from Firestore: %v", err)
 	}
 
-	status, err := queryJob.Wait(ctx)
-	if err != nil {
-		return users{}, fmt.Errorf("failed to retrieve get user query job status: %v", err)
+	var userDB users
+
+	if err = userDoc.DataTo(&userDB); err != nil {
+		return users{}, fmt.Errorf("failed to parse Firestore document: %v", err)
 	}
 
-	if err = status.Err(); err != nil {
-		return users{}, fmt.Errorf("failed to finish get user query job successfully: %v", err)
-	}
-
-	it, err := queryJob.Read(ctx)
-	if err != nil {
-		return users{}, fmt.Errorf("failed to read get user query job result: %v", err)
-	}
-
-	var result users
-
-	for {
-		err := it.Next(&result)
-		if err == iterator.Done {
-			break
-		}
-
-		if err != nil {
-			return users{}, err
-		}
-	}
-
-	return result, nil
+	return userDB, nil
 }
