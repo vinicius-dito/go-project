@@ -53,11 +53,13 @@ func main() {
 	}
 	defer firestoreClient.Close()
 
-	usersRepository := users_firestore_repository.NewUsersFirestoreRepository(*firestoreClient, envVars.firestoreUsersCollection)
+	firestoreUsersCollection := firestoreClient.Collection(envVars.firestoreUsersCollection)
+
+	usersRepository := users_firestore_repository.NewUsersFirestoreRepository(firestoreUsersCollection)
 
 	router := mux.NewRouter()
 
-	err = handler(router, usersRepository, envVars, ctx)
+	err = setupHandlerHttp(router, usersRepository, envVars, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -78,7 +80,7 @@ func setupEnv() config {
 	}
 }
 
-func handler(router *mux.Router, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) error {
+func setupHandlerHttp(router *mux.Router, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) error {
 	router.HandleFunc("/ping", ping)
 	router.HandleFunc("/transaction", transaction)
 	router.HandleFunc("/seller", seller)
@@ -88,6 +90,10 @@ func handler(router *mux.Router, usersRepository users_firestore_repository.User
 
 	return nil
 }
+
+/* func getUser(usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config) {
+	return func(w http.ResponseWriter, req *http.Request) {}
+} */
 
 func ping(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {

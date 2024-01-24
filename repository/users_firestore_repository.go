@@ -9,19 +9,17 @@ import (
 )
 
 type UsersFirestoreRepositoy struct {
-	firestoreClient     firestore.Client
-	firestoreCollection string
+	firestoreCollection *firestore.CollectionRef
 }
 
-func NewUsersFirestoreRepository(firestoreClient firestore.Client, firestoreCollection string) UsersFirestoreRepositoy {
+func NewUsersFirestoreRepository(firestoreCollection *firestore.CollectionRef) UsersFirestoreRepositoy {
 	return UsersFirestoreRepositoy{
-		firestoreClient:     firestoreClient,
 		firestoreCollection: firestoreCollection,
 	}
 }
 
 func (ufr UsersFirestoreRepositoy) Save(ctx context.Context, user domain.Users) error {
-	if _, err := ufr.firestoreClient.Collection(ufr.firestoreCollection).Doc(user.UserId).Set(ctx, user); err != nil {
+	if _, err := ufr.firestoreCollection.Doc(user.UserId).Set(ctx, user); err != nil {
 		return fmt.Errorf("failed to insert user into Firestore: %v", err)
 	}
 
@@ -31,7 +29,7 @@ func (ufr UsersFirestoreRepositoy) Save(ctx context.Context, user domain.Users) 
 func (ufr UsersFirestoreRepositoy) Get(ctx context.Context, userID string) (domain.Users, error) {
 	var user domain.Users
 
-	userDoc, err := ufr.firestoreClient.Collection(ufr.firestoreCollection).Doc(userID).Get(ctx)
+	userDoc, err := ufr.firestoreCollection.Doc(userID).Get(ctx)
 	if err != nil {
 		return user, fmt.Errorf("failed to get user from Firestore: %v", err)
 	}
