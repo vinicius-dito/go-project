@@ -1,6 +1,6 @@
 package domain
 
-type Users struct {
+type User struct {
 	UserId    string `firestore:"user_id"`
 	UserName  string `firestore:"user_name"`
 	Address   string `firestore:"address"`

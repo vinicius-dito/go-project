@@ -1,6 +1,6 @@
 package domain
 
-type Transactions struct {
+type Transaction struct {
 	UserId        string
 	TransactionId int
 	StoreId       int

@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"go-project/domain"
-	users_firestore_repository "go-project/repository"
+	user_firestore_repository "go-project/repository"
+	"go-project/service/user_service"
 	"io"
 	"net/http"
 	"os"
@@ -53,13 +54,20 @@ func main() {
 	}
 	defer firestoreClient.Close()
 
-	firestoreUsersCollection := firestoreClient.Collection(envVars.firestoreUsersCollection)
+	firestoreUserCollection := firestoreClient.Collection(envVars.firestoreUsersCollection)
 
-	usersRepository := users_firestore_repository.NewUsersFirestoreRepository(firestoreUsersCollection)
+	userRepository := user_firestore_repository.NewUsersFirestoreRepository(firestoreUserCollection)
+
+	userService, err := user_service.NewUserService(user_service.UserServiceInput{
+		UserRepository: userRepository,
+	})
+	if err != nil {
+		panic(err)
+	}
 
 	router := mux.NewRouter()
 
-	err = setupHandlerHttp(router, usersRepository, envVars, ctx)
+	err = setupHandlerHttp(router, userRepository, userService, ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -80,18 +88,18 @@ func setupEnv() config {
 	}
 }
 
-func setupHandlerHttp(router *mux.Router, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) error {
+func setupHandlerHttp(router *mux.Router, userRepository user_firestore_repository.UserFirestoreRepositoy, userService user_service.UserService, ctx context.Context) error {
 	router.HandleFunc("/ping", ping)
 	router.HandleFunc("/transaction", transaction)
 	router.HandleFunc("/seller", seller)
 	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
-		user(w, req, usersRepository, envVars, ctx)
+		user(w, req, userRepository, userService, ctx)
 	})
 
 	return nil
 }
 
-/* func getUser(usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config) {
+/* func getUser(userRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config) {
 	return func(w http.ResponseWriter, req *http.Request) {}
 } */
 
@@ -126,22 +134,41 @@ func seller(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func user(w http.ResponseWriter, req *http.Request, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) {
+func user(w http.ResponseWriter, req *http.Request, userRepository user_firestore_repository.UserFirestoreRepositoy, userService user_service.UserService, ctx context.Context) {
 	switch req.Method {
 	case http.MethodGet:
-		user, err := getUser(req, usersRepository, envVars, ctx)
+		var user user_service.GetDTO
+
+		getBody, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, fmt.Errorf("%s: %v", read_body_failed, err).Error(), http.StatusBadRequest)
+		}
+
+		err = json.Unmarshal(getBody, &user)
+		if err != nil {
+			http.Error(w, fmt.Errorf("%s: %v", unmarshal_failed, err).Error(), http.StatusUnprocessableEntity)
+			return
+		}
+
+		userDB, err := userService.Get(ctx, user)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
+		//qual código de erro usar aqui?
+		if user.UserId == "" {
+			http.Error(w, errors.New("empty user_id on body request").Error(), http.StatusInternalServerError)
+			return
+		}
+
 		fmt.Fprintf(w, "User fetched successfully\n \tuser_id: %v\n \tuser_name: %v\n \taddress: %v\n \tbirthday: %v\n \tcreated_at: %v\n \tupdated_at: %v\n \t",
-			user.UserId, user.UserName,
-			user.Address, user.Birthday,
-			user.CreatedAt, user.UpdatedAt,
+			userDB.UserId, userDB.UserName,
+			userDB.Address, userDB.Birthday,
+			userDB.CreatedAt, userDB.UpdatedAt,
 		)
 	case http.MethodPut:
-		user, err := saveUser(req, usersRepository, envVars, ctx)
+		user, err := saveUser(req, userRepository, ctx)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -153,9 +180,9 @@ func user(w http.ResponseWriter, req *http.Request, usersRepository users_firest
 	}
 }
 
-func saveUser(req *http.Request, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) (domain.Users, error) {
+func saveUser(req *http.Request, userRepository user_firestore_repository.UserFirestoreRepositoy, ctx context.Context) (domain.User, error) {
 	var user usersInput
-	var userDB domain.Users
+	var userDB domain.User
 
 	putBody, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -173,35 +200,9 @@ func saveUser(req *http.Request, usersRepository users_firestore_repository.User
 	userDB.UserId = user.UserId
 	userDB.UserName = user.UserName
 
-	err = usersRepository.Save(ctx, userDB)
+	err = userRepository.Save(ctx, userDB)
 	if err != nil {
-		return domain.Users{}, err
-	}
-
-	return userDB, nil
-}
-
-func getUser(req *http.Request, usersRepository users_firestore_repository.UsersFirestoreRepositoy, envVars config, ctx context.Context) (domain.Users, error) {
-	var user usersInput
-	var userDB domain.Users
-
-	getBody, err := io.ReadAll(req.Body)
-	if err != nil {
-		return userDB, fmt.Errorf("%s: %v", read_body_failed, err)
-	}
-
-	err = json.Unmarshal(getBody, &user)
-	if err != nil {
-		return userDB, fmt.Errorf("%s: %v", unmarshal_failed, err)
-	}
-
-	if user.UserId == "" {
-		return userDB, errors.New("missing user_id on body request")
-	}
-
-	userDB, err = usersRepository.Get(ctx, user.UserId)
-	if err != nil {
-		return userDB, err
+		return domain.User{}, err
 	}
 
 	return userDB, nil

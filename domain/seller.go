@@ -1,6 +1,6 @@
 package domain
 
-type Sellers struct {
+type Seller struct {
 	Seller_id  string
 	Store_id   string
 	Name       string

@@ -1,4 +1,4 @@
-package users_firestore_repository
+package user_firestore_repository
 
 import (
 	"context"
@@ -8,17 +8,17 @@ import (
 	"cloud.google.com/go/firestore"
 )
 
-type UsersFirestoreRepositoy struct {
+type UserFirestoreRepositoy struct {
 	firestoreCollection *firestore.CollectionRef
 }
 
-func NewUsersFirestoreRepository(firestoreCollection *firestore.CollectionRef) UsersFirestoreRepositoy {
-	return UsersFirestoreRepositoy{
+func NewUsersFirestoreRepository(firestoreCollection *firestore.CollectionRef) UserFirestoreRepositoy {
+	return UserFirestoreRepositoy{
 		firestoreCollection: firestoreCollection,
 	}
 }
 
-func (ufr UsersFirestoreRepositoy) Save(ctx context.Context, user domain.Users) error {
+func (ufr UserFirestoreRepositoy) Save(ctx context.Context, user domain.User) error {
 	if _, err := ufr.firestoreCollection.Doc(user.UserId).Set(ctx, user); err != nil {
 		return fmt.Errorf("failed to insert user into Firestore: %v", err)
 	}
@@ -26,8 +26,8 @@ func (ufr UsersFirestoreRepositoy) Save(ctx context.Context, user domain.Users) 
 	return nil
 }
 
-func (ufr UsersFirestoreRepositoy) Get(ctx context.Context, userID string) (domain.Users, error) {
-	var user domain.Users
+func (ufr UserFirestoreRepositoy) Get(ctx context.Context, userID string) (domain.User, error) {
+	var user domain.User
 
 	userDoc, err := ufr.firestoreCollection.Doc(userID).Get(ctx)
 	if err != nil {
