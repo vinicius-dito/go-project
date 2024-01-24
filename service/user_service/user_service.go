@@ -17,7 +17,7 @@ type UserServiceInput struct {
 
 func NewUserService(input UserServiceInput) (UserService, error) {
 	// como retornar esse erro aqui?
-	/* if input.userRepository == nil {
+	/* if input.UserRepository == nil {
 		return UserService{}, errors.New("missing userRepository dependency")
 	} */
 
