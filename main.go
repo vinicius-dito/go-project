@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go-project/domain"
 	user_firestore_repository "go-project/repository"
 	"go-project/service/user_service"
 	"io"
 	"net/http"
 	"os"
-	"time"
 
 	firebase "firebase.google.com/go"
 	"github.com/gorilla/mux"
@@ -150,15 +148,15 @@ func user(w http.ResponseWriter, req *http.Request, userRepository user_firestor
 			return
 		}
 
-		userDB, err := userService.Get(ctx, user)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
 		//qual código de erro usar aqui?
 		if user.UserId == "" {
 			http.Error(w, errors.New("empty user_id on body request").Error(), http.StatusInternalServerError)
+			return
+		}
+
+		userDB, err := userService.Get(ctx, user)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
@@ -167,43 +165,30 @@ func user(w http.ResponseWriter, req *http.Request, userRepository user_firestor
 			userDB.Address, userDB.Birthday,
 			userDB.CreatedAt, userDB.UpdatedAt,
 		)
+
 	case http.MethodPut:
-		user, err := saveUser(req, userRepository, ctx)
+		var user user_service.SaveDTO
+
+		putBody, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, fmt.Errorf("%s: %v", read_body_failed, err).Error(), http.StatusBadRequest)
+		}
+
+		err = json.Unmarshal(putBody, &user)
+		if err != nil {
+			http.Error(w, fmt.Errorf("%s: %v", unmarshal_failed, err).Error(), http.StatusUnprocessableEntity)
+			return
+		}
+
+		userDB, err := userService.Save(ctx, user)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		fmt.Fprintf(w, "User registered successfully\n \t %v", user)
+		fmt.Fprintf(w, "User registered successfully\n \t %v", userDB)
+
 	default:
 		http.Error(w, method_not_allowed, http.StatusMethodNotAllowed)
 	}
-}
-
-func saveUser(req *http.Request, userRepository user_firestore_repository.UserFirestoreRepositoy, ctx context.Context) (domain.User, error) {
-	var user usersInput
-	var userDB domain.User
-
-	putBody, err := io.ReadAll(req.Body)
-	if err != nil {
-		return userDB, fmt.Errorf("%s: %v", read_body_failed, err)
-	}
-
-	err = json.Unmarshal(putBody, &user)
-	if err != nil {
-		return userDB, fmt.Errorf("%s: %v", unmarshal_failed, err)
-	}
-
-	userDB.Address = user.Address
-	userDB.Birthday = user.Birthday
-	userDB.UpdatedAt = time.Now().Format("2006-01-02T15:04:05-0700")
-	userDB.UserId = user.UserId
-	userDB.UserName = user.UserName
-
-	err = userRepository.Save(ctx, userDB)
-	if err != nil {
-		return domain.User{}, err
-	}
-
-	return userDB, nil
 }

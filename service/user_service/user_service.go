@@ -4,6 +4,7 @@ import (
 	"context"
 	"go-project/domain"
 	user_firestore_repository "go-project/repository"
+	"time"
 )
 
 type UserService struct {
@@ -15,6 +16,7 @@ type UserServiceInput struct {
 }
 
 func NewUserService(input UserServiceInput) (UserService, error) {
+	// como retornar esse erro aqui?
 	/* if input.userRepository == nil {
 		return UserService{}, errors.New("missing userRepository dependency")
 	} */
@@ -33,5 +35,16 @@ func (us UserService) Get(ctx context.Context, input GetDTO) (domain.User, error
 }
 
 func (us UserService) Save(ctx context.Context, input SaveDTO) (domain.User, error) {
-	return domain.User{}, nil
+	userDB := domain.User{
+		UserId:    input.UserId,
+		UserName:  input.UserName,
+		Address:   input.Address,
+		Birthday:  input.Birthday,
+		CreatedAt: time.Now().Format("2006-01-02T15:04:05-0700"),
+		UpdatedAt: time.Now().Format("2006-01-02T15:04:05-0700"),
+	}
+
+	err := us.userRepository.Save(ctx, userDB)
+
+	return userDB, err
 }
