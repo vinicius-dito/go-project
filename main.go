@@ -25,13 +25,8 @@ type config struct {
 	gcpProjectId             string
 	gcpProjectLocation       string
 	firestoreUsersCollection string
-}
-
-type usersInput struct {
-	UserId   string `json:"user_id"`
-	UserName string `json:"user_name"`
-	Address  string `json:"address"`
-	Birthday string `json:"birthday"`
+	bigQueryDataset          string
+	bigQueryUsersTable       string
 }
 
 func main() {
@@ -83,13 +78,15 @@ func setupEnv() config {
 		gcpProjectId:             os.Getenv("GCP_PROJECT_ID"),
 		gcpProjectLocation:       os.Getenv("GCP_PROJECT_LOCATION"),
 		firestoreUsersCollection: os.Getenv("FIRESTORE_USERS_COLLECTION"),
+		bigQueryDataset:          os.Getenv("BIG_QUERY_DATASET"),
+		bigQueryUsersTable:       os.Getenv("BIG_QUERY_USERS_TABLE"),
 	}
 }
 
 func setupHandlerHttp(router *mux.Router, userRepository user_firestore_repository.UserFirestoreRepositoy, userService user_service.UserService, ctx context.Context) error {
 	router.HandleFunc("/ping", ping)
-	router.HandleFunc("/transaction", transaction)
-	router.HandleFunc("/seller", seller)
+	//router.HandleFunc("/transaction", transaction)
+	//router.HandleFunc("/seller", seller)
 	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
 		user(w, req, userRepository, userService, ctx)
 	})
@@ -108,28 +105,6 @@ func ping(w http.ResponseWriter, req *http.Request) {
 	}
 
 	fmt.Fprint(w, "pong")
-}
-
-func transaction(w http.ResponseWriter, req *http.Request) {
-	switch req.Method {
-	case http.MethodGet:
-		// fazer o get
-	case http.MethodPost:
-		// fazer o post
-	default:
-		http.Error(w, method_not_allowed, http.StatusMethodNotAllowed)
-	}
-}
-
-func seller(w http.ResponseWriter, req *http.Request) {
-	switch req.Method {
-	case http.MethodGet:
-		// fazer o get
-	case http.MethodPost:
-		// fazer o post
-	default:
-		http.Error(w, method_not_allowed, http.StatusMethodNotAllowed)
-	}
 }
 
 func user(w http.ResponseWriter, req *http.Request, userRepository user_firestore_repository.UserFirestoreRepositoy, userService user_service.UserService, ctx context.Context) {
