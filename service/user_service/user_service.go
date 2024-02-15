@@ -2,24 +2,28 @@ package user_service
 
 import (
 	"context"
+	"errors"
 	"go-project/domain"
-	user_firestore_repository "go-project/repository"
 	"time"
 )
 
 type UserService struct {
-	userRepository user_firestore_repository.UserFirestoreRepositoy
+	userRepository Repository
 }
 
 type UserServiceInput struct {
-	UserRepository user_firestore_repository.UserFirestoreRepositoy
+	UserRepository Repository
+}
+
+type Repository interface {
+	Save(ctx context.Context, user domain.User) error
+	Get(ctx context.Context, userID string) (domain.User, error)
 }
 
 func NewUserService(input UserServiceInput) (UserService, error) {
-	// como retornar esse erro aqui?
-	/* if input.UserRepository == nil {
-		return UserService{}, errors.New("missing userRepository dependency")
-	} */
+	if input.UserRepository == nil {
+		return UserService{}, errors.New("missing UserRepository dependency")
+	}
 
 	return UserService{
 		userRepository: input.UserRepository,
