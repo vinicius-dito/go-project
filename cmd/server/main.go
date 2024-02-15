@@ -54,9 +54,7 @@ func main() {
 
 	router := mux.NewRouter()
 
-	usersController := v1.NewUserController(v1.UserControllerInput{
-		UserService: userService,
-	})
+	usersController := v1.NewUserController(userService)
 
 	err = setupHandlerHttp(router, usersController, ctx)
 	if err != nil {
