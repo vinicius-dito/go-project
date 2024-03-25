@@ -11,11 +11,6 @@ import (
 	"net/http"
 
 	firebase "firebase.google.com/go"
-	"github.com/gorilla/mux"
-)
-
-const (
-	method_not_allowed = "METHOD NOT ALLOWED"
 )
 
 func main() {
@@ -52,7 +47,8 @@ func main() {
 		panic(err)
 	}
 
-	router := mux.NewRouter()
+	//router := mux.NewRouter()
+	router := http.NewServeMux()
 
 	usersController := v1.NewUserController(userService)
 
@@ -72,24 +68,22 @@ func main() {
 	}
 }
 
-func setupHandlerHttp(router *mux.Router, usersController v1.UserController, ctx context.Context) error {
-	// go atualizou o pkg http e da pra fazer o router com ele agora.
-	router.HandleFunc("/ping", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method != http.MethodGet {
-			http.Error(w, method_not_allowed, http.StatusMethodNotAllowed)
-			return
-		}
+func setupHandlerHttp(router *http.ServeMux, usersController v1.UserController, ctx context.Context) error {
+	router.HandleFunc("GET /ping", func(w http.ResponseWriter, req *http.Request) {
 
 		fmt.Fprint(w, "pong")
 	})
 
-	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
-		usersController.GetUser(w, req, ctx)
-	}).Methods("GET")
+	router.HandleFunc("GET /user", func(w http.ResponseWriter, req *http.Request) {
 
-	router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
-		usersController.SaveUser(w, req, ctx)
-	}).Methods("PUT")
+		usersController.GetUser(w, req, ctx)
+	})
+
+	/*
+		router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
+			usersController.SaveUser(w, req, ctx)
+		}).Methods("PUT")
+	*/
 
 	return nil
 }
