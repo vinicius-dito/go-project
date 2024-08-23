@@ -12,10 +12,14 @@ type UserFirestoreRepositoy struct {
 	firestoreCollection *firestore.CollectionRef
 }
 
-func NewUsersFirestoreRepository(firestoreCollection *firestore.CollectionRef) UserFirestoreRepositoy {
+func NewUsersFirestoreRepository(firestoreCollection *firestore.CollectionRef) (UserFirestoreRepositoy, error) {
+	if firestoreCollection == nil {
+		return UserFirestoreRepositoy{}, fmt.Errorf("failed to create firestore repository")
+	}
+
 	return UserFirestoreRepositoy{
 		firestoreCollection: firestoreCollection,
-	}
+	}, nil
 }
 
 func (ufr UserFirestoreRepositoy) Save(ctx context.Context, user domain.User) error {

@@ -6,10 +6,10 @@ GOPATH=$(shell go env GOPATH)
 api:
 	@ echo
 	@ echo "Running API..."
-	@ go run main.go
+	@ go run cmd/server/main.go
 
 tests:
 	@ echo
 	@ echo "Running tests..."
 	@ echo
-	@ FIRESTORE_EMULATOR_HOST=localhost:8080 go test -v ./... -coverprofile=coverage.out
+	@ ginkgo -r --randomize-all --coverprofile=.coverage-report.out

@@ -4,3 +4,10 @@
 # TESTS
 /mocks
 *.out
+
+# FIRESTORE EMULATOR
+.firebaserc
+firebase.json
+firestore.indexes.json
+firestore.rules
+*.log

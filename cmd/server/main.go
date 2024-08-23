@@ -6,6 +6,7 @@ import (
 	"go-project/config"
 	v1 "go-project/handlers/http/v1"
 	server "go-project/pkg"
+	"go-project/pkg/trace"
 	user_firestore_repository "go-project/repository/firestore"
 	"go-project/service/user_service"
 	"net/http"
@@ -33,14 +34,31 @@ func main() {
 
 	firestoreUserCollection := firestoreClient.Collection(envVars.FirestoreUsersCollection)
 
-	userRepositoryFirestore := user_firestore_repository.NewUsersFirestoreRepository(firestoreUserCollection)
+	tracer, flush := trace.MustNewTracer(trace.Params{
+		//IsProductionEnvironment: config.IsProductionEnvironment(),
+		ApplicationName:        envVars.ApplicationName,
+		TraceRatio:             envVars.TraceRatio,
+		ApplicationEnvironment: envVars.ApplicationEnvironment,
+		GCPProjectId:           envVars.TraceGCPProjectId,
+	})
+	defer func() { _ = flush(ctx) }()
+
+	// Repositories
+
+	userRepositoryFirestore, err := user_firestore_repository.NewUsersFirestoreRepository(firestoreUserCollection)
+	if err != nil {
+		panic(err)
+	}
 
 	//client, err := bigquery.NewClient(ctx, "")
 
 	//userRepositoryBQ := user_bigquery_repository.NewUsersBigQueryRepository(client, "", "", "")
 
+	// Services
+
 	userService, err := user_service.NewUserService(user_service.UserServiceInput{
 		UserRepository: userRepositoryFirestore,
+		Tracer:         tracer,
 		//UserRepository: userRepositoryBQ,
 	})
 	if err != nil {
@@ -57,10 +75,10 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("Server running in http://localhost:8080")
+	fmt.Println("Server running in http://localhost:3000")
 
 	err = server.NewServer(server.ServerInput{
-		Port:    ":8080",
+		Port:    ":3000",
 		Routers: router,
 	})
 	if err != nil {
@@ -70,20 +88,16 @@ func main() {
 
 func setupHandlerHttp(router *http.ServeMux, usersController v1.UserController, ctx context.Context) error {
 	router.HandleFunc("GET /ping", func(w http.ResponseWriter, req *http.Request) {
-
 		fmt.Fprint(w, "pong")
 	})
 
 	router.HandleFunc("GET /user", func(w http.ResponseWriter, req *http.Request) {
-
 		usersController.GetUser(w, req, ctx)
 	})
 
-	/*
-		router.HandleFunc("/user", func(w http.ResponseWriter, req *http.Request) {
-			usersController.SaveUser(w, req, ctx)
-		}).Methods("PUT")
-	*/
+	router.HandleFunc("PUT /user", func(w http.ResponseWriter, req *http.Request) {
+		usersController.SaveUser(w, req, ctx)
+	})
 
 	return nil
 }
